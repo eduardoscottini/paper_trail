@@ -300,7 +300,7 @@ defmodule PaperTrail do
       event: "update",
       item_type: get_item_type(changeset),
       item_id: get_model_id(changeset),
-      item_changes: changeset.changes,
+      item_changes: deep_serialize_change(changeset),
       originator_id:
         case originator_ref do
           nil -> nil
@@ -354,6 +354,21 @@ defmodule PaperTrail do
     relationships = model.__struct__.__schema__(:associations)
     Map.drop(model, [:__struct__, :__meta__] ++ relationships)
   end
+
+  defp deep_serialize_change(%Ecto.Changeset{changes: changes}), do: deep_serialize_change(changes)
+
+  defp deep_serialize_change(%_struct{} = change), do: change
+
+  defp deep_serialize_change(%{} = changes) do
+    for {key, val} <- changes, into: %{}, do: {key, deep_serialize_change(val)}
+    # Enum.map(changes, fn {key, value} -> {key, deep_serialize_change(value)} end)
+  end
+
+  defp deep_serialize_change([_|_] = changes) do
+    Enum.map(changes, fn item_changed -> deep_serialize_change(item_changed) end)
+  end
+
+  defp deep_serialize_change(change), do: change
 
   defp add_prefix(changeset, nil), do: changeset
   defp add_prefix(changeset, prefix), do: Ecto.put_meta(changeset, prefix: prefix)

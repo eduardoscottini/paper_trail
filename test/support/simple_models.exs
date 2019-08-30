@@ -28,6 +28,7 @@ defmodule SimpleCompany do
     |> cast(params, @optional_fields)
     |> validate_required([:name])
     |> no_assoc_constraint(:people)
+    |> cast_assoc(:people, with: &SimplePerson.changeset/2)
   end
 
   def count do
@@ -58,6 +59,8 @@ defmodule SimplePerson do
 
     belongs_to(:company, SimpleCompany, foreign_key: :company_id)
 
+    has_one(:project, SimpleProject, foreign_key: :person_id)
+
     timestamps()
   end
 
@@ -67,6 +70,40 @@ defmodule SimplePerson do
     model
     |> cast(params, @optional_fields)
     |> foreign_key_constraint(:company_id)
+    |> cast_assoc(:project, with: &SimpleProject.changeset/2)
+  end
+
+  def count do
+    from(record in __MODULE__, select: count(record.id)) |> PaperTrail.RepoClient.repo().one
+  end
+
+  def count(:multitenant) do
+    from(record in __MODULE__, select: count(record.id))
+    |> MultiTenant.add_prefix_to_query()
+    |> PaperTrail.RepoClient.repo().one
+  end
+end
+
+defmodule SimpleProject do
+  use Ecto.Schema
+
+  alias PaperTrailTest.MultiTenantHelper, as: MultiTenant
+
+  import Ecto.Changeset
+  import Ecto.Query
+
+  schema "simple_projects" do
+    field(:name, :string)
+
+    belongs_to(:person, SimplePerson, foreign_key: :person_id)
+
+    timestamps()
+  end
+
+  def changeset(model, params \\ %{}) do
+    model
+    |> cast(params, [:name])
+    |> foreign_key_constraint(:person_id)
   end
 
   def count do

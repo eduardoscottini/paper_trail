@@ -6,9 +6,11 @@ defmodule PaperTrailTest do
   alias PaperTrail.Version
   alias SimpleCompany, as: Company
   alias SimplePerson, as: Person
+  alias SimpleProject, as: Project
 
   @repo PaperTrail.RepoClient.repo()
   @create_company_params %{name: "Acme LLC", is_active: true, city: "Greenwich"}
+  @create_person_params %{first_name: "Izel", last_name: "Nakri", gender: true}
   @update_company_params %{
     city: "Hong Kong",
     website: "http://www.acme.com",
@@ -26,11 +28,13 @@ defmodule PaperTrailTest do
   end
 
   setup do
+    @repo.delete_all(Project)
     @repo.delete_all(Person)
     @repo.delete_all(Company)
     @repo.delete_all(Version)
 
     on_exit(fn ->
+      @repo.delete_all(Project)
       @repo.delete_all(Person)
       @repo.delete_all(Company)
       @repo.delete_all(Version)
@@ -134,6 +138,74 @@ defmodule PaperTrailTest do
            }
 
     assert company == first(Company, :id) |> @repo.one |> serialize
+  end
+
+  test "updating a company with association update should create a correct company version" do
+    user = create_user()
+    # {:ok, %{model: company_model, version: version_model} = insert_result} = create_company_with_version(@create_company_with_assocs_params)
+    {:ok, %{model: company} = insert_result} = create_company_with_version()
+    {:ok, %{model: person_model} = insert_result} = create_person_with_version(company)
+
+    company = company |> @repo.preload(people: [:project])
+
+
+    company_update_params = %{
+      name: "Acme LLC",
+      is_active: true,
+      city: "Hong Kong",
+      website: "http://www.acme.com",
+      facebook: "acme.llc",
+      people: [
+        %{
+          id: person_model.id,
+          first_name: "Doctor",
+          last_name: "Strange",
+          gender: true,
+          project: %{name: "Project X"}
+        }
+      ]
+    }
+
+    {:ok, %{model: updated_company, version: new_version} = result} =
+      update_company_with_version(
+        company,
+        company_update_params,
+        user: user
+      )
+
+    assert Company.count() == 1
+    assert Version.count() == 3
+    assert Person.count() == 1
+    assert Project.count() == 1
+
+    updated_company = updated_company |> @repo.preload(people: [:project])
+    assert %{
+      city: "Hong Kong",
+      facebook: "acme.llc",
+      website: "http://www.acme.com"
+    } = updated_company |> serialize
+
+    assert %{
+      first_name: "Doctor",
+      last_name: "Strange"
+    } = List.first(updated_company.people) |> serialize
+
+    assert %{
+      event: "update",
+      item_type: "SimpleCompany",
+      item_id: company.id,
+      item_changes: %{
+        city: "Hong Kong",
+        facebook: "acme.llc",
+        people: [
+          %{first_name: "Doctor", last_name: "Strange", project: %{name: "Project X"}}
+        ],
+        website: "http://www.acme.com"
+      },
+      originator_id: user.id,
+      origin: nil,
+      meta: nil
+    } == Map.drop(new_version |> serialize, [:id, :inserted_at, :updated_at])
   end
 
   test "updating a company with originator[user] creates a correct company version" do
@@ -536,6 +608,10 @@ defmodule PaperTrailTest do
 
   defp update_company_with_version(company, params \\ @update_company_params, options \\ nil) do
     Company.changeset(company, params) |> PaperTrail.update(options)
+  end
+
+  defp create_person_with_version(company, params \\ @create_person_params, options \\ nil) do
+    Person.changeset(%Person{}, Map.put(params, :company_id, company.id)) |> PaperTrail.insert(options)
   end
 
   defp serialize(model) do

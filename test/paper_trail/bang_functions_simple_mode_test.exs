@@ -6,6 +6,7 @@ defmodule PaperTrailTest.SimpleModeBangFunctions do
   alias PaperTrail.Version
   alias SimpleCompany, as: Company
   alias SimplePerson, as: Person
+  alias SimpleProject, as: Project
   alias PaperTrailTest.MultiTenantHelper, as: MultiTenant
 
   @repo PaperTrail.RepoClient.repo()
@@ -984,9 +985,14 @@ defmodule PaperTrailTest.SimpleModeBangFunctions do
   end
 
   defp reset_all_data() do
+    @repo.delete_all(Project)
     @repo.delete_all(Person)
     @repo.delete_all(Company)
     @repo.delete_all(Version)
+
+    Project
+    |> MultiTenant.add_prefix_to_query()
+    |> @repo.delete_all()
 
     Person
     |> MultiTenant.add_prefix_to_query()
