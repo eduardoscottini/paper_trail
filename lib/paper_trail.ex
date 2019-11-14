@@ -278,7 +278,7 @@ defmodule PaperTrail do
 
     %Version{
       event: "insert",
-      item_type: model.__struct__ |> Module.split() |> List.last(),
+      item_type: get_item_type(model),
       item_id: get_model_id(model),
       item_changes: serialize(model),
       originator_id:
@@ -298,9 +298,9 @@ defmodule PaperTrail do
 
     %Version{
       event: "update",
-      item_type: changeset.data.__struct__ |> Module.split() |> List.last(),
-      item_id: get_model_id(changeset.data),
-      item_changes: changeset.changes,
+      item_type: get_item_type(changeset),
+      item_id: get_model_id(changeset),
+      item_changes: deep_serialize_change(changeset),
       originator_id:
         case originator_ref do
           nil -> nil
@@ -312,15 +312,15 @@ defmodule PaperTrail do
     |> add_prefix(options[:prefix])
   end
 
-  defp make_version_struct(%{event: "delete"}, model, options) do
+  defp make_version_struct(%{event: "delete"}, model_or_changeset, options) do
     originator = PaperTrail.RepoClient.originator()
     originator_ref = options[originator[:name]] || options[:originator]
 
     %Version{
       event: "delete",
-      item_type: model.__struct__ |> Module.split() |> List.last(),
-      item_id: get_model_id(model),
-      item_changes: serialize(model),
+      item_type: get_item_type(model_or_changeset),
+      item_id: get_model_id(model_or_changeset),
+      item_changes: serialize(model_or_changeset),
       originator_id:
         case originator_ref do
           nil -> nil
@@ -348,13 +348,35 @@ defmodule PaperTrail do
     |> List.first()
   end
 
+  defp serialize(%Ecto.Changeset{data: data}), do: serialize(data)
+
   defp serialize(model) do
     relationships = model.__struct__.__schema__(:associations)
     Map.drop(model, [:__struct__, :__meta__] ++ relationships)
   end
 
+  defp deep_serialize_change(%Ecto.Changeset{changes: changes}), do: deep_serialize_change(changes)
+
+  defp deep_serialize_change(%_struct{} = change), do: change
+
+  defp deep_serialize_change(%{} = changes) do
+    for {key, val} <- changes, into: %{}, do: {key, deep_serialize_change(val)}
+    # Enum.map(changes, fn {key, value} -> {key, deep_serialize_change(value)} end)
+  end
+
+  defp deep_serialize_change([_|_] = changes) do
+    Enum.map(changes, fn item_changed -> deep_serialize_change(item_changed) end)
+  end
+
+  defp deep_serialize_change(change), do: change
+
   defp add_prefix(changeset, nil), do: changeset
   defp add_prefix(changeset, prefix), do: Ecto.put_meta(changeset, prefix: prefix)
+
+  defp get_item_type(%Ecto.Changeset{data: data}), do: get_item_type(data)
+  defp get_item_type(model), do: model.__struct__ |> Module.split() |> List.last()
+
+  def get_model_id(%Ecto.Changeset{data: data}), do: get_model_id(data)
 
   def get_model_id(model) do
     {_, model_id} = List.first(Ecto.primary_key(model))
