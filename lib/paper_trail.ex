@@ -352,16 +352,20 @@ defmodule PaperTrail do
 
   defp serialize(model) do
     relationships = model.__struct__.__schema__(:associations)
-    Map.drop(model, [:__struct__, :__meta__] ++ relationships)
+    model
+    |> Map.drop([:__struct__, :__meta__] ++ relationships)
+    |> Enum.into(%{}, fn
+      {k, %{binary: _binary, filename: filename}} -> {k, filename}
+      {k, v} -> {k, v}
+    end)
   end
 
   defp deep_serialize_change(%Ecto.Changeset{changes: changes}), do: deep_serialize_change(changes)
-
   defp deep_serialize_change(%_struct{} = change), do: change
+  defp deep_serialize_change(%{binary: _binary, filename: filename}), do: filename
 
   defp deep_serialize_change(%{} = changes) do
     for {key, val} <- changes, into: %{}, do: {key, deep_serialize_change(val)}
-    # Enum.map(changes, fn {key, value} -> {key, deep_serialize_change(value)} end)
   end
 
   defp deep_serialize_change([_|_] = changes) do
